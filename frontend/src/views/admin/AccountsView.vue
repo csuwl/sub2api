@@ -225,7 +225,7 @@
           <template #cell-name="{ row, value }">
             <div class="flex flex-col">
               <HelpTooltip
-                v-if="accountHomepageUrl(row)"
+                v-if="!row.credentials?.provider_runtime_account && accountHomepageUrl(row)"
                 :content="accountHomepageUrl(row)"
                 width-class="w-max max-w-sm break-all"
                 class="-ml-1 self-start"
