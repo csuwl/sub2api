@@ -13,14 +13,22 @@ import { fileURLToPath } from 'node:url';
 const here = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const binary = process.env.SUB2API_TEST_SERVER;
 const bun = process.env.SUB2API_TEST_BUN ?? 'bun';
-if (!binary) throw new Error('Set SUB2API_TEST_SERVER to a freshly built server binary');
+const deployedBase = process.env.SUB2API_TEST_BASE_URL;
+if (deployedBase) {
+  if (process.env.SUB2API_TEST_ALLOW_EXISTING !== 'true') throw new Error('Deployed smoke creates fixtures and adds synthetic balance; set SUB2API_TEST_ALLOW_EXISTING=true for an isolated test deployment');
+  const url = new URL(deployedBase);
+  if (url.username || url.password || !['https:', 'http:'].includes(url.protocol)) throw new Error('Invalid test deployment URL');
+  if (url.protocol === 'http:' && !['localhost', '127.0.0.1'].includes(url.hostname)) throw new Error('Remote smoke requires HTTPS');
+  if (!process.env.ADMIN_EMAIL || !process.env.ADMIN_PASSWORD) throw new Error('Deployed smoke requires ADMIN_EMAIL and ADMIN_PASSWORD in the environment');
+} else if (!binary) throw new Error('Set SUB2API_TEST_SERVER to a freshly built server binary');
 const suffix = randomBytes(5).toString('hex');
 const label = `sub2api-runtime-smoke-${suffix}`;
 const containers = [], children = [], secrets = [];
 const directory = await mkdtemp(join(tmpdir(), 'sub2api-provider-smoke-'));
 const logs = {};
 function secret() { const value = randomBytes(32).toString('hex'); secrets.push(value); return value; }
-const password = secret(), runtimeToken = secret(), adminPassword = secret();
+const password = secret(), runtimeToken = secret(), adminPassword = deployedBase ? process.env.ADMIN_PASSWORD : secret();
+secrets.push(adminPassword);
 const stateKey = randomBytes(32).toString('base64'); secrets.push(stateKey);
 
 function docker(args, env = {}) {
@@ -51,7 +59,7 @@ function start(name, program, args, env, cwd) {
   child.on('error', error => append(error.message));
   children.push(child); return child;
 }
-let base, adminJWT;
+let base, adminJWT, smokeKeyID;
 async function request(path, body, authorization = adminJWT, method) {
   const response = await fetch(base + path, { method: method ?? (body === undefined ? 'GET' : 'POST'),
     headers: { 'content-type': 'application/json', 'x-admin-ui-request': '1', ...(authorization ? { authorization: `Bearer ${authorization}` } : {}) },
@@ -59,10 +67,11 @@ async function request(path, body, authorization = adminJWT, method) {
   const text = await response.text();
   let json; try { json = JSON.parse(text); } catch {}
   if (!response.ok) throw new Error(`${path}: HTTP ${response.status}: ${text.slice(0, 1500)}`);
-  return { status: response.status, data: json?.data ?? json, text };
+  return { status: response.status, contentType: response.headers.get('content-type'), data: json?.data ?? json, text };
 }
 
 try {
+  if (!deployedBase) {
   for (const [kind, image, port, env] of [
     ['pg', 'postgres:18-alpine', 5432, { POSTGRES_PASSWORD: password, POSTGRES_USER: 'sub2api', POSTGRES_DB: 'sub2api' }],
     ['redis', 'redis:7-alpine', 6379, {}],
@@ -89,16 +98,22 @@ try {
     PROVIDER_RUNTIME_BASE_URL: `http://127.0.0.1:${runtimePort}`, PROVIDER_RUNTIME_TOKEN: runtimeToken,
   }, directory);
   base = `http://127.0.0.1:${appPort}`;
+  } else base = deployedBase.replace(/\/$/, '');
   await waitFor(async () => { const response = await fetch(base + '/health', { signal: AbortSignal.timeout(2000) }); assert.equal(response.status, 200); });
   console.log(JSON.stringify({ phase: 'startup', health: 200 }));
-  const signin = await request('/api/v1/auth/login', { email: 'runtime-smoke@example.invalid', password: adminPassword }, null);
+  const signin = await request('/api/v1/auth/login', { email: deployedBase ? process.env.ADMIN_EMAIL : 'runtime-smoke@example.invalid', password: adminPassword }, null);
   adminJWT = signin.data.access_token; assert.ok(adminJWT); secrets.push(adminJWT);
   const userId = signin.data.user.id;
   const compliance = (await request('/api/v1/admin/compliance')).data;
-  if (compliance.required) await request('/api/v1/admin/compliance/accept', { phrase: compliance.ack_phrase_en, language: 'en' });
-  await request(`/api/v1/admin/users/${userId}`, { concurrency: 8 }, adminJWT, 'PUT');
-  const funded = (await request(`/api/v1/admin/users/${userId}/balance`, { balance: 100, operation: 'set', notes: 'Isolated test balance; no real payment' })).data;
-  assert.equal(funded.balance, 100);
+  if (compliance.required) {
+    if (deployedBase) throw new Error('Deployment is ready; an administrator must review and accept the compliance notice in the web UI before management smoke can continue');
+    await request('/api/v1/admin/compliance/accept', { phrase: compliance.ack_phrase_en, language: 'en' });
+  }
+  if (!deployedBase) await request(`/api/v1/admin/users/${userId}`, { concurrency: 8 }, adminJWT, 'PUT');
+  const before = (await request(`/api/v1/admin/users/${userId}`)).data;
+  const funded = (await request(`/api/v1/admin/users/${userId}/balance`, { balance: deployedBase ? 1 : 100, operation: deployedBase ? 'add' : 'set', notes: 'Isolated test balance; no real payment' })).data;
+  const startingBalance = funded.balance;
+  assert.ok(Math.abs(startingBalance - (deployedBase ? before.balance + 1 : 100)) < 0.000001);
   const unauthorized = await fetch(base + '/api/v1/admin/provider-runtime/accounts'); assert.equal(unauthorized.status, 401);
   const runtimeStatus = (await request('/api/v1/admin/provider-runtime/status')).data; assert.equal(runtimeStatus.enabled, true);
   const account = (await request('/api/v1/admin/provider-runtime/accounts', { provider: 'opencode-zen-free', name: 'Public free smoke' })).data;
@@ -114,12 +129,14 @@ try {
       provider_runtime_provider: account.provider, provider_runtime_protocol: 'chat_completions', model_mapping: { [model.id]: model.id } } })).data;
   const key = (await request('/api/v1/keys', { name: 'Runtime smoke', group_id: group.id })).data;
   const apiKey = key.key; assert.ok(apiKey); secrets.push(apiKey);
+  smokeKeyID = key.id;
   console.log(JSON.stringify({ phase: 'management', login: 200, unauthorized_admin: 401, runtime_account: account.id, model: model.id, group: group.id, account: linked.id }));
   for (const protocol of ['responses', 'messages']) {
     const body = protocol === 'responses'
       ? { model: model.id, stream: true, input: 'Reply with exactly SUB2API_FULL_STACK_OK. Do not call any tools.' }
       : { model: model.id, stream: true, max_tokens: 128, messages: [{ role: 'user', content: 'Reply with exactly SUB2API_FULL_STACK_OK. Do not call any tools.' }] };
     const result = await request(`/v1/${protocol}`, body, apiKey);
+    assert.ok(result.contentType?.includes('text/event-stream'));
     assert.ok(result.text.includes(protocol === 'responses' ? 'response.completed' : 'message_stop'));
     let output = '';
     for (const line of result.text.split('\n')) if (line.startsWith('data: ')) {
@@ -130,6 +147,16 @@ try {
     assert.ok(output.includes('SUB2API_FULL_STACK_OK'), `Unexpected ${protocol} answer: ${output}`);
     console.log(JSON.stringify({ phase: 'gateway', protocol, http_status: result.status, completed: true, output }));
   }
+  const chat = await request('/v1/chat/completions', { model: model.id, stream: true, max_tokens: 128,
+    messages: [{ role: 'user', content: 'Reply with exactly SUB2API_FULL_STACK_OK. Do not call any tools.' }] }, apiKey);
+  assert.ok(chat.contentType?.includes('text/event-stream'));
+  assert.ok(chat.text.includes('data: [DONE]'));
+  let chatOutput = '';
+  for (const line of chat.text.split('\n')) if (line.startsWith('data: ')) {
+    try { chatOutput += JSON.parse(line.slice(6)).choices?.[0]?.delta?.content ?? ''; } catch {}
+  }
+  assert.ok(chatOutput.includes('SUB2API_FULL_STACK_OK'), `Unexpected Chat Completions answer: ${chatOutput}`);
+  console.log(JSON.stringify({ phase: 'gateway', protocol: 'chat_completions', http_status: chat.status, completed: true, output: chatOutput }));
   for (const protocol of ['responses', 'messages']) {
     const prompt = 'Call smoke_echo with value "fixture". After its result, repeat the tool result exactly.';
     const schema = { type: 'object', properties: { value: { type: 'string' } }, required: ['value'], additionalProperties: false };
@@ -157,13 +184,14 @@ try {
   }
   const rows = await waitFor(async () => {
     const usage = (await request('/api/v1/usage?page=1&page_size=20')).data;
-    assert.ok(usage.items?.length >= 6); return usage.items;
+    const items = usage.items?.filter(row => row.api_key_id === key.id) ?? [];
+    assert.ok(items.length >= 7); return items;
   }, 15000);
   assert.ok(rows.every(row => (row.input_tokens ?? 0) + (row.output_tokens ?? 0) > 0));
   assert.ok(rows.every(row => row.actual_cost > 0));
   const charged = rows.reduce((sum, row) => sum + row.actual_cost, 0);
   const user = (await request(`/api/v1/admin/users/${userId}`)).data;
-  assert.ok(Math.abs((100 - user.balance) - charged) < 0.00001, 'Usage costs must reconcile with the isolated user balance');
+  assert.ok(Math.abs((startingBalance - user.balance) - charged) < 0.00001, 'Usage costs must reconcile with the isolated user balance');
   console.log(JSON.stringify({ phase: 'accounting', records: rows.length, tokens_recorded: true, test_balance_charged: charged, reconciled: true }));
   const ui = await fetch(base + '/admin/provider-runtime'); assert.equal(ui.status, 200);
   assert.ok((await ui.text()).includes('<html'));
@@ -174,6 +202,10 @@ try {
   console.error(`Isolated application logs: ${join(directory, 'failure.log')}`);
   process.exitCode = 1;
 } finally {
+  if (deployedBase && smokeKeyID) {
+    try { await request(`/api/v1/keys/${smokeKeyID}`, undefined, adminJWT, 'DELETE'); console.log(JSON.stringify({ phase: 'cleanup', smoke_key_revoked: true })); }
+    catch (error) { console.error(`Smoke key cleanup: ${redact(error.message)}`); process.exitCode = 1; }
+  }
   for (const child of children.reverse()) {
     child.kill();
     await Promise.race([new Promise(resolve => child.once('exit', resolve)), delay(3000)]);

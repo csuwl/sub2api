@@ -242,6 +242,10 @@
                 </template>
               </HelpTooltip>
               <span v-else class="font-medium text-gray-900 dark:text-white">{{ value }}</span>
+              <button v-if="row.credentials?.provider_runtime_account" type="button"
+                class="self-start text-xs text-primary-600 hover:underline dark:text-primary-400"
+                :aria-label="t('providerRuntime.manageAccount', { name: row.name })"
+                @click="manageProviderAccount(row)">{{ providerAccountLabel(row) }} · {{ t('providerRuntime.manage') }}</button>
               <span
                 v-if="accountDisplayEmail(row)"
                 class="text-xs text-gray-500 dark:text-gray-400 truncate max-w-[200px]"
@@ -258,7 +262,8 @@
           <template #cell-platform_type="{ row }">
             <div class="flex min-w-0 flex-col gap-1">
               <div class="flex flex-wrap items-center gap-1">
-                <PlatformTypeBadge :platform="row.platform" :type="row.type"
+                <span v-if="row.credentials?.provider_runtime_account" class="badge badge-primary">{{ providerAccountLabel(row) }}</span>
+                <PlatformTypeBadge v-else :platform="row.platform" :type="row.type"
                   :auth-mode="getOpenAIAuthMode(row)"
                   :plan-type="getAccountPlanType(row)"
                   :privacy-mode="row.extra?.privacy_mode || row.parent_privacy_mode"
@@ -455,6 +460,8 @@
       <template #pagination><Pagination v-if="pagination.total > 0" :page="pagination.page" :total="pagination.total" :page-size="pagination.page_size" @update:page="handlePageChange" @update:pageSize="handlePageSizeChange" /></template>
     </TablePageLayout>
     <CreateAccountModal :show="showCreate" :proxies="proxies" :groups="groups" @close="showCreate = false" @created="reload" />
+    <ProviderRuntimeAccountModal :show="!!providerAccountId" :account-id="providerAccountId" :group-id="providerGroupId"
+      @close="providerAccountId = undefined" @saved="providerAccountId = undefined; reload()" />
     <EditAccountModal :show="showEdit" :account="edAcc" :proxies="proxies" :groups="groups" @close="showEdit = false" @updated="handleAccountUpdated" />
     <ReAuthAccountModal :show="showReAuth" :account="reAuthAcc" @close="closeReAuthModal" @reauthorized="handleAccountUpdated" />
     <AccountTestModal :show="showTest" :account="testingAcc" @close="closeTestModal" />
@@ -508,6 +515,7 @@ import HelpTooltip from '@/components/common/HelpTooltip.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import { CreateAccountModal, EditAccountModal, BulkEditAccountModal, SyncFromCrsModal, TempUnschedStatusModal } from '@/components/account'
+import ProviderRuntimeAccountModal from '@/components/account/ProviderRuntimeAccountModal.vue'
 import AccountTableActions from '@/components/admin/account/AccountTableActions.vue'
 import AccountTableFilters from '@/components/admin/account/AccountTableFilters.vue'
 import AccountBulkActionsBar from '@/components/admin/account/AccountBulkActionsBar.vue'
@@ -593,6 +601,16 @@ const selTypes = computed<AccountType[]>(() => {
   return [...types]
 })
 const showCreate = ref(false)
+const providerAccountId = ref<string>()
+const providerGroupId = ref<number>()
+function providerAccountLabel(account: AccountListItem): string {
+  const provider = account.credentials?.provider_runtime_provider
+  return provider === 'workbuddy' ? 'WorkBuddy' : provider === 'workbuddy-ai' ? 'WorkBuddy AI' : 'OpenCode Zen Free'
+}
+function manageProviderAccount(account: AccountListItem) {
+  providerAccountId.value = String(account.credentials?.provider_runtime_account ?? '') || undefined
+  providerGroupId.value = account.group_ids?.[0]
+}
 const showEdit = ref(false)
 const showSync = ref(false)
 const showImportData = ref(false)
@@ -1362,6 +1380,7 @@ watch(accounts, (rows) => {
 const isAnyModalOpen = computed(() => {
   return (
     showCreate.value ||
+    !!providerAccountId.value ||
     showEdit.value ||
     showSync.value ||
     showImportData.value ||
@@ -2339,7 +2358,10 @@ const handleSchedule = async (a: Account) => {
   }
 }
 const closeSchedulePanel = () => { showSchedulePanel.value = false; scheduleAcc.value = null; scheduleModelOptions.value = [] }
-const handleReAuth = (a: Account) => { reAuthAcc.value = a; showReAuth.value = true }
+const handleReAuth = (a: Account) => {
+  if (a.credentials?.provider_runtime_account) { manageProviderAccount(a); return }
+  reAuthAcc.value = a; showReAuth.value = true
+}
 const duplicatingAccountIDs = new Set<number>()
 const handleDuplicateAccount = async (a: Account) => {
   if (duplicatingAccountIDs.has(a.id)) return

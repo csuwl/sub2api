@@ -1,24 +1,22 @@
 <template>
-  <AppLayout>
     <div class="space-y-6">
       <div class="flex items-start justify-between gap-4">
         <div>
-          <h2 class="text-lg font-semibold text-gray-900 dark:text-white">{{ t('providerRuntime.title') }}</h2>
-          <p class="mt-1 text-sm text-gray-500">{{ t('providerRuntime.description') }}</p>
+          <p class="text-sm text-gray-500">{{ t('providerRuntime.description') }}</p>
         </div>
         <button class="btn btn-secondary" :disabled="busy" @click="load">{{ t('providerRuntime.refresh') }}</button>
       </div>
       <p v-if="error" role="alert" class="rounded-lg bg-red-50 p-4 text-red-700 dark:bg-red-900/20">{{ error }}</p>
       <p v-if="!enabled" class="card p-5 text-gray-600 dark:text-gray-300">{{ t('providerRuntime.disabled') }}</p>
       <template v-else>
-        <form class="card flex flex-wrap items-end gap-4 p-5" @submit.prevent="add">
+        <form v-if="!accountId" class="card flex flex-wrap items-end gap-4 p-5" @submit.prevent="add">
           <label class="min-w-48 flex-1"><span class="input-label">{{ t('providerRuntime.provider') }}</span>
             <select v-model="provider" class="input"><option v-for="item in providers" :key="item.id" :value="item.id">{{ item.name }}</option></select>
           </label>
           <label class="min-w-48 flex-1"><span class="input-label">{{ t('providerRuntime.name') }}</span><input v-model="name" class="input" maxlength="100" required /></label>
           <button class="btn btn-primary" :disabled="busy || !provider">{{ t('providerRuntime.add') }}</button>
         </form>
-        <section class="card space-y-4 p-5">
+        <section v-if="accounts.length" class="card space-y-4 p-5">
           <label class="block"><span class="input-label">{{ t('providerRuntime.account') }}</span>
             <select v-model="selectedId" class="input"><option v-for="item in accounts" :key="item.id" :value="item.id">{{ item.name }} · {{ item.connected ? t('providerRuntime.connected') : t('providerRuntime.disconnected') }}</option></select>
           </label>
@@ -59,25 +57,25 @@
         </section>
       </template>
     </div>
-  </AppLayout>
 </template>
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import AppLayout from '@/components/layout/AppLayout.vue'
 import * as accountAPI from '@/api/admin/accounts'
 import * as groupAPI from '@/api/admin/groups'
 import { buildRuntimeAccounts, runtimeRequest, type RuntimeAccount, type RuntimeLogin, type RuntimeModel, type RuntimeProvider } from '@/api/admin/providerRuntime'
 import type { AdminGroup, AccountListItem } from '@/types'
 
 const { t } = useI18n()
+const props = defineProps<{ providerId?: string; accountId?: string; accountName?: string; initialGroupId?: number }>()
+const emit = defineEmits<{ saved: [] }>()
 const enabled = ref(true), busy = ref(false), error = ref('')
 const providers = ref<RuntimeProvider[]>([]), accounts = ref<RuntimeAccount[]>([])
-const provider = ref(''), name = ref(''), selectedId = ref('')
+const provider = ref(props.providerId ?? ''), name = ref(props.accountName ?? ''), selectedId = ref(props.accountId ?? '')
 const selected = computed(() => accounts.value.find(account => account.id === selectedId.value))
 const models = ref<RuntimeModel[]>([]), chosen = ref<string[]>([]), groups = ref<AdminGroup[]>([])
-const groupId = ref<number>(), imported = ref<number | null>(null), login = ref<RuntimeLogin>()
+const groupId = ref<number | undefined>(props.initialGroupId), imported = ref<number | null>(null), login = ref<RuntimeLogin>()
 const allowance = ref<{ plan?: string; error?: string; windows?: { name: string; used?: number; limit?: number }[] }>()
 const loginURL = computed(() => { try { const url = new URL(login.value?.url ?? ''); return url.protocol === 'https:' ? url.href : '' } catch { return '' } })
 let timer: ReturnType<typeof setTimeout> | undefined
@@ -94,12 +92,25 @@ async function load() { await run(async () => {
   enabled.value = (await runtimeRequest<{ enabled: boolean }>('/status')).enabled
   if (!enabled.value) return
   const [providerList, accountList, groupList] = await Promise.all([runtimeRequest<RuntimeProvider[]>('/providers'), runtimeRequest<RuntimeAccount[]>('/accounts'), groupAPI.getAll('openai')])
-  providers.value = providerList; accounts.value = accountList; groups.value = groupList
-  provider.value ||= providerList[0]?.id ?? ''; selectedId.value ||= accountList[0]?.id ?? ''
+  providers.value = providerList.filter(item => !props.providerId || item.id === props.providerId)
+  accounts.value = accountList.filter(item => (!props.accountId || item.id === props.accountId) && (!props.providerId || item.provider === props.providerId))
+  groups.value = groupList
+  provider.value ||= providers.value[0]?.id ?? ''
+  if (!accounts.value.some(item => item.id === selectedId.value)) selectedId.value = accounts.value[0]?.id ?? ''
+  models.value = selected.value?.models ?? []; chosen.value = models.value.map(model => model.id)
 }) }
 async function add() { await run(async () => {
   const account = await runtimeRequest<RuntimeAccount>('/accounts', 'POST', { provider: provider.value, name: name.value })
   accounts.value.push(account); selectedId.value = account.id; name.value = ''
+  // Discovery follows public authorization without an extra management page.
+  if (account.connected) {
+    const result = await runtimeRequest<RuntimeModel[]>(`/accounts/${account.id}/models`, 'POST', {})
+    models.value = result; chosen.value = result.map(model => model.id)
+  } else {
+    login.value = await runtimeRequest<RuntimeLogin>(`/accounts/${account.id}/authorize`, 'POST', {})
+    if (login.value.status === 'pending') { stopPolling(); timer = setTimeout(() => void poll(account.id), 1500) }
+    else if (login.value.status === 'connected') { account.connected = true; void loadModels() }
+  }
 }) }
 async function poll(id: string) {
   if (!mounted || selectedId.value !== id) return
@@ -108,7 +119,7 @@ async function poll(id: string) {
     if (!mounted || selectedId.value !== id) return
     login.value = { ...login.value, ...state }
     if (state.status === 'pending') timer = setTimeout(() => void poll(id), 1500)
-    else if (state.status === 'connected' && selected.value) selected.value.connected = true
+    else if (state.status === 'connected' && selected.value) { selected.value.connected = true; void loadModels() }
     else if (state.status === 'error') error.value = state.message ?? t('providerRuntime.error')
   } catch { if (mounted && selectedId.value === id) error.value = t('providerRuntime.error') }
 }
@@ -143,8 +154,11 @@ async function importModels() {
       if (previous) {
         const oldMapping = (previous.credentials?.model_mapping ?? {}) as Record<string, unknown>
         const newMapping = request.credentials.model_mapping as Record<string, unknown>
-        if (Object.keys(newMapping).some(id => !(id in oldMapping))) {
-          await accountAPI.update(previous.id, { credentials: { ...previous.credentials, model_mapping: { ...oldMapping, ...newMapping } } })
+        const oldGroups = previous.group_ids ?? []
+        const addGroup = groupId.value !== undefined && !oldGroups.includes(groupId.value)
+        if (Object.keys(newMapping).some(id => !(id in oldMapping)) || addGroup) {
+          await accountAPI.update(previous.id, { credentials: { ...previous.credentials, model_mapping: { ...oldMapping, ...newMapping } },
+            ...(addGroup ? { group_ids: [...oldGroups, groupId.value!] } : {}) })
           count++
         }
         continue
@@ -152,6 +166,7 @@ async function importModels() {
       await accountAPI.create(request); count++
     }
     imported.value = count
+    emit('saved')
   })
 }
 onMounted(() => { void load() })

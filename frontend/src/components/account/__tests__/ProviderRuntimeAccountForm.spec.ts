@@ -1,14 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import en from '@/i18n/locales/en'
-import ProviderRuntimeView from '../ProviderRuntimeView.vue'
+import ProviderRuntimeAccountForm from '../ProviderRuntimeAccountForm.vue'
 import { runtimeRequest } from '@/api/admin/providerRuntime'
 import * as accounts from '@/api/admin/accounts'
 
 vi.mock('@/api/admin/providerRuntime', async original => ({ ...await original<typeof import('@/api/admin/providerRuntime')>(), runtimeRequest: vi.fn() }))
 vi.mock('@/api/admin/accounts', () => ({ default: {}, list: vi.fn(), create: vi.fn(), update: vi.fn() }))
 vi.mock('@/api/admin/groups', () => ({ default: {}, getAll: vi.fn(async () => [{ id: 42, name: 'Fixture group' }]) }))
-vi.mock('@/components/layout/AppLayout.vue', () => ({ default: { template: '<main><slot /></main>' } }))
 vi.mock('vue-i18n', async original => ({ ...await original<typeof import('vue-i18n')>(), useI18n: () => ({ t: (key: string, values?: Record<string, unknown>) => {
   let message = key.split('.').reduce<unknown>((value, part) => (value as Record<string, unknown>)?.[part], en)
   if (typeof message !== 'string') return key
@@ -35,9 +34,8 @@ beforeEach(() => {
   vi.mocked(accounts.list).mockResolvedValue({ items: [], pages: 1, page: 1, page_size: 100, total: 0 })
 })
 afterEach(() => { wrapper?.unmount(); wrapper = undefined; vi.useRealTimers() })
-async function open() {
-  wrapper = mount(ProviderRuntimeView, { global: {
-    stubs: { AppLayout: { template: '<main><slot /></main>' } } } })
+async function open(props: { providerId?: string; accountId?: string } = {}) {
+  wrapper = mount(ProviderRuntimeAccountForm, { props })
   await flushPromises()
 }
 
@@ -60,6 +58,7 @@ describe('subscription provider management', () => {
       })
     }))
     expect(wrapper!.text()).toContain('Added 1 accounts')
+    expect(wrapper!.emitted('saved')).toHaveLength(1)
   })
 
   it('merges newly selected models into an existing connection without duplicating it', async () => {
@@ -87,5 +86,37 @@ describe('subscription provider management', () => {
     await flushPromises()
     expect(runtimeRequest).toHaveBeenCalledWith('/accounts/fixture-account/poll')
     expect(wrapper!.text()).not.toContain('Waiting for provider authorization')
+  })
+
+  it('opens an existing account with its saved models and no creation form', async () => {
+    await open({ accountId: fixtureAccount.id })
+    expect(wrapper!.find('form').exists()).toBe(false)
+    expect(wrapper!.text()).toContain('Fixture model')
+    expect(wrapper!.find('select').element.value).toBe(fixtureAccount.id)
+  })
+
+  it('keeps provider choices and resumable authorizations within the selected platform', async () => {
+    vi.mocked(runtimeRequest).mockImplementation(async path => {
+      if (path === '/status') return { enabled: true } as never
+      if (path === '/providers') return [{ id: 'workbuddy', name: 'WorkBuddy' }, { id: 'opencode-zen-free', name: 'OpenCode Zen Free' }] as never
+      if (path === '/accounts') return [fixtureAccount, { ...fixtureAccount, id: 'free-account', provider: 'opencode-zen-free', name: 'Free account' }] as never
+      throw new Error(`Unexpected fixture operation: ${path}`)
+    })
+    await open({ providerId: 'opencode-zen-free' })
+    const selects = wrapper!.findAll('select')
+    expect(selects[0]!.findAll('option').map(option => option.text())).toEqual(['OpenCode Zen Free'])
+    expect(selects[1]!.element.value).toBe('free-account')
+    expect(selects[1]!.findAll('option')).toHaveLength(1)
+  })
+
+  it('adds a group without removing existing connection groups', async () => {
+    vi.mocked(accounts.list).mockResolvedValue({ items: [{ id: 7, group_ids: [11, 12], credentials: {
+      provider_runtime_account: fixtureAccount.id, provider_runtime_protocol: 'chat_completions', model_mapping: { 'glm-fixture': 'glm-fixture' }
+    } }] as never, pages: 1, page: 1, page_size: 100, total: 1 })
+    await open()
+    await wrapper!.findAll('select').at(-1)!.setValue('42')
+    await button('Add models to Sub2API').trigger('click'); await flushPromises()
+    expect(accounts.update).toHaveBeenCalledWith(7, expect.objectContaining({ group_ids: [11, 12, 42] }))
+    expect(accounts.create).not.toHaveBeenCalled()
   })
 })

@@ -28,9 +28,11 @@ Requirements: Bun 1.3.6 or later (1.3.6 is the tested baseline), the modified Su
    ```
 
    Equivalent environment variables are `PROVIDER_RUNTIME_ENABLED`, `PROVIDER_RUNTIME_BASE_URL`, `PROVIDER_RUNTIME_TOKEN`. An HTTP endpoint outside loopback requires the explicit `PROVIDER_RUNTIME_ALLOW_INSECURE_HTTP=true` setting for a trusted private network; otherwise use HTTPS.
-5. Open **Subscription providers / 订阅模型接入** in the admin sidebar. Add a provider account. For WorkBuddy, click Authorize and complete the provider's official browser login yourself. Zen Free uses its public credential and needs no personal API key.
+5. Open **Account Management / 账号管理 → Add account / 添加账号** and choose WorkBuddy, WorkBuddy AI or OpenCode Zen Free. Add the account in the same dialog. For WorkBuddy, complete the provider's official browser login yourself; the dialog polls for completion. Zen Free uses its public credential and needs no personal API key.
 6. Load models, choose models and an OpenAI API group, then add them to Sub2API. Models are split into one Sub2API account per native protocol. Existing protocol connections are retained when importing again; newly selected model IDs are added to their mappings. An unassigned account must be attached to a group before its API key can route requests.
 7. Use your existing Sub2API API key and public gateway base URL from Codex, Claude Code or another supported client. Set the client model to an imported model ID. For Claude Code and other Messages clients, enable **Messages dispatch** on the chosen OpenAI group; if keeping default Claude model aliases, map those aliases to imported model IDs in the group settings. The `.invalid` base URL visible in imported account credentials is a reserved placeholder: bound requests are intercepted and sent to the configured runtime. A missing runtime fails closed.
+
+Existing provider connections appear in the ordinary account list with their provider name. Use **Manage authorization and models / 管理授权与模型** on that account to reauthorize, discover additional models or check allowance. There is no additional sidebar section. Old `/admin/provider-runtime` bookmarks redirect to account management.
 
 The runtime deployment token is never returned to the browser or placed in a downstream API key. Sub2API holds opaque runtime account IDs. Provider sign-ins stay in the host; browser management is proxied through Sub2API's existing admin authentication, rate limit, audit and compliance middleware.
 
@@ -45,6 +47,8 @@ docker compose -f docker-compose.yml -f docker-compose.provider-runtime.yml up -
 ```
 
 The overlay builds the modified main application and the runtime. The runtime is reachable only on the internal Compose network and has no published host port. Preserve the named `provider-runtime-data` volume and its encryption key. This initial implementation uses one runtime process as the owner of that state volume; do not run multiple runtime writers against the same file. Multiple Sub2API instances can point to the same runtime service.
+
+For a separate VPS trial alongside existing services, use the [isolated deployment instructions](../deploy/README.test.zh-CN.md) and `deploy/docker-compose.test.yml`. They publish only a loopback origin, cap resources, rotate logs and retain separate database/state volumes. Close registration before adding the public HTTPS route.
 
 ## Provider ownership and limits
 
@@ -75,7 +79,9 @@ SUB2API_TEST_SERVER=/absolute/path/to/built/sub2api SUB2API_TEST_BUN=bun \
 node scripts/docker-compose-smoke.mjs
 ```
 
-The full-stack check requires the `postgres:18-alpine` and `redis:7-alpine` images locally. It starts temporary labelled database containers, the built main application and the provider host; tests admin access, discovery, real streaming responses, tool calls with results on both downstream APIs, usage and balance reconciliation; then removes only its own containers. It uses public free access and synthetic local retail prices, with no personal subscription credentials or real payment. The selected model must still be free and support tools when the check runs. See [the dated test report](TEST_REPORT.zh-CN.md) for observed results and limitations.
+The full-stack check requires the `postgres:18-alpine` and `redis:7-alpine` images locally. It starts temporary labelled database containers, the built main application and the provider host; tests admin access, discovery, streaming Responses/Chat Completions/Messages, tool-call/result rounds on Responses and Messages, usage and balance reconciliation; then removes only its own containers. It uses public free access and synthetic local retail prices, with no personal subscription credentials or real payment. The selected model must still be free and support tools when the check runs. See [the dated test report](TEST_REPORT.zh-CN.md) for observed results and limitations.
+
+An existing isolated test deployment can be checked with `SUB2API_TEST_BASE_URL`, `SUB2API_TEST_ALLOW_EXISTING=true`, `ADMIN_EMAIL` and `ADMIN_PASSWORD`. This mode requires the deployment administrator to accept the compliance notice first, creates test accounts/groups, adds one synthetic balance unit and revokes its temporary API key afterwards. It does not start or remove deployment containers. See the VPS instructions before running it.
 
 The Compose check builds only the provider service from the documented overlay. It verifies shared networking, authentication, no published ports and persistence across restart in a random temporary Compose project, then removes its own project and volumes.
 

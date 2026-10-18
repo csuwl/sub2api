@@ -1,5 +1,6 @@
 export default {
   providerRuntime: {
+    manage: 'Manage authorization and models', manageAccount: 'Manage authorization and models for {name}',
     title: 'Subscription providers', description: 'Connect subscription and free models to your existing API groups.',
     disabled: 'The provider service is not enabled. Complete the provider runtime deployment to connect accounts.',
     name: 'Account name', provider: 'Provider', add: 'Add account', account: 'Provider account',

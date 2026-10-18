@@ -154,6 +154,10 @@ function mountModal(groups: any[] = []) {
         GroupSelector: GroupSelectorStub,
         ModelWhitelistSelector: ModelWhitelistSelectorStub,
         QuotaLimitCard: true,
+        ProviderRuntimeAccountForm: {
+          name: 'ProviderRuntimeAccountForm', props: ['providerId', 'accountName'], emits: ['saved'],
+          template: '<button data-testid="save-provider-account" @click="$emit(\'saved\')">save provider</button>',
+        },
       },
     },
   })
@@ -164,6 +168,31 @@ async function selectButtonByText(wrapper: ReturnType<typeof mountModal>, text: 
   expect(button).toBeDefined()
   await button?.trigger('click')
 }
+
+describe('CreateAccountModal subscription and free platforms', () => {
+  it.each(['workbuddy', 'workbuddy-ai', 'opencode-zen-free'])('adds %s from the existing account dialog and preserves the account name', async provider => {
+    const wrapper = mountModal()
+    await wrapper.get('[data-tour="account-form-name"]').setValue('My provider account')
+    await wrapper.get(`[data-testid="provider-platform-${provider}"]`).trigger('click')
+    const form = wrapper.findComponent({ name: 'ProviderRuntimeAccountForm' })
+    expect(form.props()).toEqual({ providerId: provider, accountName: 'My provider account' })
+    expect(wrapper.find('#create-account-form').exists()).toBe(false)
+    await wrapper.get('[data-testid="save-provider-account"]').trigger('click')
+    expect(wrapper.emitted('created')).toHaveLength(1)
+    expect(wrapper.emitted('close')).toHaveLength(1)
+    wrapper.unmount()
+  })
+
+  it('returns to the unchanged standard account form without losing the name', async () => {
+    const wrapper = mountModal()
+    await wrapper.get('[data-tour="account-form-name"]').setValue('Existing flow')
+    await wrapper.get('[data-testid="provider-platform-workbuddy"]').trigger('click')
+    await selectButtonByText(wrapper, 'common.back')
+    expect(wrapper.get('[data-tour="account-form-name"]').element).toHaveProperty('value', 'Existing flow')
+    expect(wrapper.findComponent({ name: 'ProviderRuntimeAccountForm' }).exists()).toBe(false)
+    wrapper.unmount()
+  })
+})
 
 async function submitApiKeyAccount(
   platform: 'openai' | 'anthropic',

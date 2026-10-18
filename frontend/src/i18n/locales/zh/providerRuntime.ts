@@ -1,5 +1,6 @@
 export default {
   providerRuntime: {
+    manage: '管理授权与模型', manageAccount: '管理 {name} 的授权与模型',
     title: '订阅模型接入', description: '将订阅、积分及免费模型连接到现有 API 分组。',
     disabled: '供应商服务尚未启用，请先完成 provider runtime 部署，再连接账号。',
     name: '账号名称', provider: '供应商', add: '添加账号', account: '供应商账号',
