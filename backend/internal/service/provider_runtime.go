@@ -83,7 +83,7 @@ func ProviderRuntimeRoundTrip(req *http.Request, account *Account, cfg *config.C
 	forward.URL, forward.Host = u, ""
 	forward.RequestURI = ""
 	forward.Header = runtimeHeaders(req.Header, cfg.ProviderRuntime.Token)
-	resp, err := providerRuntimeHTTPClient.Do(forward)
+	resp, err := providerRuntimeHTTPClient.Do(forward) //nolint:gosec // G704: origin is validated deployment configuration, endpoint is selected from fixed literals above, and redirects are disabled.
 	if err != nil {
 		// Do not include URL credentials, deployment tokens or request headers.
 		return nil, true, fmt.Errorf("provider runtime request failed: %w", err)
@@ -122,5 +122,5 @@ func ProviderRuntimeAdminRequest(req *http.Request, cfg *config.Config) (*http.R
 	forward.URL, forward.Host = u, ""
 	forward.RequestURI = ""
 	forward.Header = runtimeHeaders(req.Header, cfg.ProviderRuntime.Token)
-	return providerRuntimeHTTPClient.Do(forward)
+	return providerRuntimeHTTPClient.Do(forward) //nolint:gosec // G704: validated deployment origin, fixed /admin prefix, handler-allowlisted path and disabled redirects prevent request-controlled destinations.
 }
