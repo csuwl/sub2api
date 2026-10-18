@@ -119,4 +119,74 @@ describe('subscription provider management', () => {
     expect(accounts.update).toHaveBeenCalledWith(7, expect.objectContaining({ group_ids: [11, 12, 42] }))
     expect(accounts.create).not.toHaveBeenCalled()
   })
+
+  it('creates a personal account, requires the official browser flow, then enables import', async () => {
+    vi.useFakeTimers()
+    const pending = { ...fixtureAccount, id: 'new-personal', connected: false, models: [] }
+    vi.mocked(runtimeRequest).mockImplementation(async (path, method) => {
+      if (path === '/status') return { enabled: true } as never
+      if (path === '/providers') return [{ id: 'workbuddy', name: 'WorkBuddy' }] as never
+      if (path === '/accounts') return (method === 'POST' ? pending : []) as never
+      if (path.endsWith('/authorize')) return { status: 'pending', url: 'https://fixture.invalid/official-login' } as never
+      if (path.endsWith('/poll')) return { status: 'connected' } as never
+      if (path.endsWith('/models')) return models as never
+      throw new Error(`Unexpected operation ${path}`)
+    })
+    await open({ providerId: 'workbuddy' })
+    await wrapper!.find('input[maxlength]').setValue('My personal account')
+    await wrapper!.find('form').trigger('submit')
+    await flushPromises()
+    expect(runtimeRequest).toHaveBeenCalledWith('/accounts/new-personal/authorize', 'POST', {})
+    expect(wrapper!.find('a').attributes('href')).toBe('https://fixture.invalid/official-login')
+    expect(wrapper!.text()).toContain('Waiting for provider authorization')
+    expect(accounts.create).not.toHaveBeenCalled()
+    expect(runtimeRequest).not.toHaveBeenCalledWith('/accounts/new-personal/models', 'POST', {})
+    await vi.advanceTimersByTimeAsync(1500)
+    await flushPromises()
+    expect(runtimeRequest).toHaveBeenCalledWith('/accounts/new-personal/models', 'POST', {})
+    expect(button('Add models to Sub2API').attributes('disabled')).toBeUndefined()
+  })
+
+  it('restores an unfinished login after reopening instead of losing its URL', async () => {
+    vi.useFakeTimers()
+    const original = vi.mocked(runtimeRequest).getMockImplementation()!
+    vi.mocked(runtimeRequest).mockImplementation(async (path, ...args) => {
+      if (path.endsWith('/poll')) return { status: 'pending', url: 'https://fixture.invalid/resume' } as never
+      return original(path, ...args)
+    })
+    await open({ accountId: fixtureAccount.id })
+    expect(wrapper!.find('a').attributes('href')).toBe('https://fixture.invalid/resume')
+    await vi.advanceTimersByTimeAsync(1500)
+    expect(runtimeRequest).toHaveBeenCalledWith('/accounts/fixture-account/poll')
+  })
+
+  it('does not treat an authorization error or stale model catalog as authenticated', async () => {
+    const original = vi.mocked(runtimeRequest).getMockImplementation()!
+    vi.mocked(runtimeRequest).mockImplementation(async (path, ...args) => {
+      if (path === '/accounts') return [{ ...fixtureAccount, connected: false }] as never
+      if (path.endsWith('/poll')) return { status: 'disconnected' } as never
+      if (path.endsWith('/authorize')) return { status: 'error', message: 'Official sign-in failed' } as never
+      return original(path, ...args)
+    })
+    await open()
+    expect(button('Add models to Sub2API').attributes('disabled')).toBeDefined()
+    await button('Authorize account').trigger('click'); await flushPromises()
+    expect(wrapper!.text()).toContain('Official sign-in failed')
+    expect(button('Add models to Sub2API').attributes('disabled')).toBeDefined()
+    expect(accounts.create).not.toHaveBeenCalled()
+  })
+
+  it('explains public access without pretending to sign in to an email account', async () => {
+    const original = vi.mocked(runtimeRequest).getMockImplementation()!
+    vi.mocked(runtimeRequest).mockImplementation(async (path, ...args) => {
+      if (path === '/providers') return [{ id: 'opencode-zen-free', name: 'OpenCode Zen Free' }] as never
+      if (path === '/accounts') return [{ ...fixtureAccount, provider: 'opencode-zen-free' }] as never
+      return original(path, ...args)
+    })
+    await open({ providerId: 'opencode-zen-free' })
+    expect(wrapper!.text()).toContain('No sign-in is required')
+    expect(wrapper!.text()).toContain('Entering an email does not sign in')
+    expect(wrapper!.findAll('button').some(item => item.text() === 'Authorize account')).toBe(false)
+    expect(runtimeRequest).not.toHaveBeenCalledWith('/accounts/fixture-account/authorize', 'POST', {})
+  })
 })

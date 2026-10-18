@@ -13,22 +13,27 @@
           <label class="min-w-48 flex-1"><span class="input-label">{{ t('providerRuntime.provider') }}</span>
             <select v-model="provider" class="input"><option v-for="item in providers" :key="item.id" :value="item.id">{{ item.name }}</option></select>
           </label>
-          <label class="min-w-48 flex-1"><span class="input-label">{{ t('providerRuntime.name') }}</span><input v-model="name" class="input" maxlength="100" required /></label>
-          <button class="btn btn-primary" :disabled="busy || !provider">{{ t('providerRuntime.add') }}</button>
+          <label class="min-w-48 flex-1"><span class="input-label">{{ t('providerRuntime.name') }}</span><input v-model="name" class="input" :placeholder="t('providerRuntime.namePlaceholder')" maxlength="100" required /><span class="text-xs text-gray-500">{{ t('providerRuntime.nameHint') }}</span></label>
+          <p class="w-full text-sm text-gray-600 dark:text-gray-300">{{ t(isPublicProvider ? 'providerRuntime.publicHint' : 'providerRuntime.browserHint') }}</p>
+          <button class="btn btn-primary" :disabled="busy || !provider">{{ t(isPublicProvider ? 'providerRuntime.addPublic' : 'providerRuntime.addAndAuthorize') }}</button>
         </form>
         <section v-if="accounts.length" class="card space-y-4 p-5">
           <label class="block"><span class="input-label">{{ t('providerRuntime.account') }}</span>
-            <select v-model="selectedId" class="input"><option v-for="item in accounts" :key="item.id" :value="item.id">{{ item.name }} · {{ item.connected ? t('providerRuntime.connected') : t('providerRuntime.disconnected') }}</option></select>
+            <select v-model="selectedId" class="input" :disabled="busy" @change="restoreSelection"><option v-for="item in accounts" :key="item.id" :value="item.id">{{ item.name }} · {{ item.provider === 'opencode-zen-free' ? t('providerRuntime.publicAccess') : item.connected ? t('providerRuntime.connected') : t('providerRuntime.disconnected') }}</option></select>
           </label>
+          <p v-if="selected?.provider === 'opencode-zen-free'" class="rounded-lg bg-blue-50 p-4 text-sm dark:bg-blue-900/20">{{ t('providerRuntime.publicHint') }}</p>
+          <p v-else-if="selected && !selected.connected" class="text-sm text-gray-600 dark:text-gray-300">{{ t('providerRuntime.browserHint') }}</p>
           <div v-if="selected" class="flex flex-wrap gap-3">
-            <button class="btn btn-secondary" :disabled="busy || login?.status === 'pending'" @click="authorize">{{ t('providerRuntime.connect') }}</button>
+            <button v-if="selected.provider !== 'opencode-zen-free'" class="btn btn-secondary" :disabled="busy || login?.status === 'pending'" @click="authorize">{{ t('providerRuntime.connect') }}</button>
             <button class="btn btn-secondary" :disabled="busy || !selected.connected" @click="loadModels">{{ t('providerRuntime.loadModels') }}</button>
             <button class="btn btn-secondary" :disabled="busy || !selected.connected" @click="loadUsage">{{ t('providerRuntime.usage') }}</button>
           </div>
           <div v-if="login?.status === 'pending'" class="rounded-lg bg-blue-50 p-4 dark:bg-blue-900/20">
             <p>{{ t('providerRuntime.pending') }}</p>
-            <a v-if="loginURL" :href="loginURL" target="_blank" rel="noopener noreferrer" class="mt-2 inline-block text-primary-600 underline">{{ t('providerRuntime.openLogin') }}</a>
+            <a v-if="loginURL" :href="loginURL" target="_blank" rel="noopener noreferrer" class="btn btn-primary mt-3 inline-flex">{{ t('providerRuntime.openLogin') }}</a>
+            <p class="mt-2 text-sm">{{ t('providerRuntime.remoteHint') }}</p>
           </div>
+          <p v-if="login?.status === 'connected' && selected?.provider !== 'opencode-zen-free'" role="status" class="text-green-700">{{ t('providerRuntime.authorized') }}</p>
           <div v-if="allowance" class="rounded-lg bg-gray-50 p-4 dark:bg-dark-700">
             <h3 class="font-medium">{{ t('providerRuntime.allowance') }}</h3>
             <p v-if="allowance.plan">{{ allowance.plan }}</p>
@@ -51,7 +56,7 @@
             <label class="block"><span class="input-label">{{ t('providerRuntime.group') }}</span><select v-model="groupId" class="input"><option :value="undefined">{{ t('providerRuntime.unassigned') }}</option><option v-for="group in groups" :key="group.id" :value="group.id">{{ group.name }}</option></select></label>
             <p class="text-sm text-gray-500">{{ t('providerRuntime.importHint') }}</p>
             <p class="text-sm text-gray-500">{{ t('providerRuntime.pricingHint') }}</p>
-            <button class="btn btn-primary" :disabled="busy || !chosen.length" @click="importModels">{{ t('providerRuntime.import') }}</button>
+            <button class="btn btn-primary" :disabled="busy || !selected.connected || !chosen.length" @click="importModels">{{ t('providerRuntime.import') }}</button>
             <p v-if="imported !== null" role="status" class="text-green-700">{{ t('providerRuntime.imported', { count: imported }) }}</p>
           </template>
         </section>
@@ -60,7 +65,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import * as accountAPI from '@/api/admin/accounts'
 import * as groupAPI from '@/api/admin/groups'
@@ -74,6 +79,7 @@ const enabled = ref(true), busy = ref(false), error = ref('')
 const providers = ref<RuntimeProvider[]>([]), accounts = ref<RuntimeAccount[]>([])
 const provider = ref(props.providerId ?? ''), name = ref(props.accountName ?? ''), selectedId = ref(props.accountId ?? '')
 const selected = computed(() => accounts.value.find(account => account.id === selectedId.value))
+const isPublicProvider = computed(() => provider.value === 'opencode-zen-free')
 const models = ref<RuntimeModel[]>([]), chosen = ref<string[]>([]), groups = ref<AdminGroup[]>([])
 const groupId = ref<number | undefined>(props.initialGroupId), imported = ref<number | null>(null), login = ref<RuntimeLogin>()
 const allowance = ref<{ plan?: string; error?: string; windows?: { name: string; used?: number; limit?: number }[] }>()
@@ -82,7 +88,13 @@ let timer: ReturnType<typeof setTimeout> | undefined
 let mounted = true
 
 function stopPolling() { if (timer) clearTimeout(timer); timer = undefined }
-watch(selectedId, () => { stopPolling(); login.value = undefined; allowance.value = undefined; imported.value = null; models.value = selected.value?.models ?? []; chosen.value = models.value.map(model => model.id) })
+function resetSelection() { stopPolling(); login.value = undefined; allowance.value = undefined; imported.value = null; models.value = selected.value?.models ?? []; chosen.value = models.value.map(model => model.id) }
+async function restoreSelection() {
+  resetSelection()
+  const id = selectedId.value
+  if (!id || selected.value?.provider === 'opencode-zen-free') return
+  await poll(id)
+}
 async function run(action: () => Promise<void>) {
   busy.value = true; error.value = ''
   try { await action() } catch (failure) { error.value = failure instanceof Error ? failure.message : t('providerRuntime.error') }
@@ -97,19 +109,17 @@ async function load() { await run(async () => {
   groups.value = groupList
   provider.value ||= providers.value[0]?.id ?? ''
   if (!accounts.value.some(item => item.id === selectedId.value)) selectedId.value = accounts.value[0]?.id ?? ''
-  models.value = selected.value?.models ?? []; chosen.value = models.value.map(model => model.id)
+  await restoreSelection()
 }) }
 async function add() { await run(async () => {
   const account = await runtimeRequest<RuntimeAccount>('/accounts', 'POST', { provider: provider.value, name: name.value })
-  accounts.value.push(account); selectedId.value = account.id; name.value = ''
+  accounts.value.push(account); selectedId.value = account.id; name.value = ''; resetSelection()
   // Discovery follows public authorization without an extra management page.
   if (account.connected) {
     const result = await runtimeRequest<RuntimeModel[]>(`/accounts/${account.id}/models`, 'POST', {})
     models.value = result; chosen.value = result.map(model => model.id)
   } else {
-    login.value = await runtimeRequest<RuntimeLogin>(`/accounts/${account.id}/authorize`, 'POST', {})
-    if (login.value.status === 'pending') { stopPolling(); timer = setTimeout(() => void poll(account.id), 1500) }
-    else if (login.value.status === 'connected') { account.connected = true; void loadModels() }
+    await startAuthorization(account.id)
   }
 }) }
 async function poll(id: string) {
@@ -119,15 +129,26 @@ async function poll(id: string) {
     if (!mounted || selectedId.value !== id) return
     login.value = { ...login.value, ...state }
     if (state.status === 'pending') timer = setTimeout(() => void poll(id), 1500)
-    else if (state.status === 'connected' && selected.value) { selected.value.connected = true; void loadModels() }
+    else if (state.status === 'connected' && selected.value) {
+      const newlyAuthorized = !selected.value.connected
+      selected.value.connected = true
+      if (newlyAuthorized || !models.value.length) await loadModels()
+    }
     else if (state.status === 'error') error.value = state.message ?? t('providerRuntime.error')
   } catch { if (mounted && selectedId.value === id) error.value = t('providerRuntime.error') }
 }
-async function authorize() { const id = selectedId.value; await run(async () => {
-  login.value = await runtimeRequest<RuntimeLogin>(`/accounts/${id}/authorize`, 'POST', {})
+async function startAuthorization(id: string) {
+  const authorization = await runtimeRequest<RuntimeLogin>(`/accounts/${id}/authorize`, 'POST', {})
+  if (!mounted || selectedId.value !== id) return
+  login.value = authorization
   if (login.value.status === 'pending') { stopPolling(); timer = setTimeout(() => void poll(id), 1500) }
-  else if (selected.value?.id === id) selected.value.connected = true
-}) }
+  else if (login.value.status === 'connected' && selected.value?.id === id) {
+    selected.value.connected = true
+    const result = await runtimeRequest<RuntimeModel[]>(`/accounts/${id}/models`, 'POST', {})
+    models.value = result; chosen.value = result.map(model => model.id)
+  } else if (login.value.status === 'error') throw new Error(login.value.message ?? t('providerRuntime.error'))
+}
+async function authorize() { await run(() => startAuthorization(selectedId.value)) }
 async function loadModels() { const id = selectedId.value; await run(async () => {
   const result = await runtimeRequest<RuntimeModel[]>(`/accounts/${id}/models`, 'POST', {})
   if (selectedId.value !== id) return
@@ -136,7 +157,7 @@ async function loadModels() { const id = selectedId.value; await run(async () =>
 async function loadUsage() { const id = selectedId.value; await run(async () => { const result = await runtimeRequest<typeof allowance.value>(`/accounts/${id}/usage`); if (selectedId.value === id) allowance.value = result }) }
 async function importModels() {
   const account = selected.value
-  if (!account) return
+  if (!account?.connected) { error.value = t('providerRuntime.authorizeFirst'); return }
   await run(async () => {
     const requests = buildRuntimeAccounts(account, models.value.filter(model => chosen.value.includes(model.id)), groupId.value)
     if (!requests.length) throw new Error(t('providerRuntime.selectModels'))
