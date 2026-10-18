@@ -1,0 +1,18 @@
+{
+  "lockfileVersion": 1,
+  "configVersion": 1,
+  "workspaces": {
+    "": {
+      "name": "sub2api-provider-runtime",
+      "dependencies": {
+        "@magpie-community/opencode-workbuddy-auth": "0.1.24",
+        "@magpie-community/opencode-zen-free-auth": "0.1.11",
+      },
+    },
+  },
+  "packages": {
+    "@magpie-community/opencode-workbuddy-auth": ["@magpie-community/opencode-workbuddy-auth@0.1.24", "", {}, "sha512-2X5rjDHdxOBp6q329N2593qZ+2XVysAeS9LTzXAdKggFMyzlmXeOq+e2K1Z3IJ1PN1kiZo8iUVogA0mU3plJTg=="],
+
+    "@magpie-community/opencode-zen-free-auth": ["@magpie-community/opencode-zen-free-auth@0.1.11", "", {}, "sha512-yN/RfGo8xWicD4NdQgd35IyqbQR8dLUOmKY+Ox6zWTovaLbAabI+vOou0DK+5xgKupz7gPDCh3Orc+FmEOomEQ=="],
+  }
+}

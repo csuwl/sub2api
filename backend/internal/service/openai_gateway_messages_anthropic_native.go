@@ -125,6 +125,9 @@ func (s *OpenAIGatewayService) forwardAnthropicViaNativeAnthropicEndpoint(
 // nativeAnthropicTargetURL 组装国产供应商原生 Anthropic messages 端点。
 // 第三方端点保持朴素路径，不附加 ?beta=true。
 func (s *OpenAIGatewayService) nativeAnthropicTargetURL(account *Account) (string, error) {
+	if account.IsProviderRuntimeAccount() {
+		return providerRuntimeReservedOrigin + "/v1/messages", nil
+	}
 	baseURL := strings.TrimSpace(account.GetAnthropicProtocolBaseURL())
 	if baseURL == "" {
 		return "", fmt.Errorf("account %d has no anthropic protocol base url", account.ID)

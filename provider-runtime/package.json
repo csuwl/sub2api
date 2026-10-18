@@ -1,0 +1,14 @@
+{
+  "name": "sub2api-provider-runtime",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "bun src/server.mjs",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@magpie-community/opencode-workbuddy-auth": "0.1.24",
+    "@magpie-community/opencode-zen-free-auth": "0.1.11"
+  }
+}

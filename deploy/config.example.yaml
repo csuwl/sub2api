@@ -1069,6 +1069,13 @@ rate_limit:
 # Local OAuth Transport Plugins (Optional)
 # 本地 OAuth 出站传输插件（可选）
 # =============================================================================
+provider_runtime:
+  # Optional OpenCode supplier host; see provider-runtime/README.md.
+  enabled: false
+  base_url: "http://127.0.0.1:3426"
+  token: ""
+  allow_insecure_http: false
+
 plugins:
   # Empty means {{DATA_DIR}}/plugins, or ./data/plugins when DATA_DIR is unset.
   # 留空时使用 {{DATA_DIR}}/plugins；未设置 DATA_DIR 时使用 ./data/plugins。

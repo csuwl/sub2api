@@ -526,6 +526,18 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/admin/provider-runtime',
+    name: 'AdminProviderRuntime',
+    component: () => import('@/views/admin/ProviderRuntimeView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: 'Subscription providers',
+      titleKey: 'providerRuntime.title',
+      descriptionKey: 'providerRuntime.description'
+    }
+  },
+  {
     path: '/admin/plugins',
     name: 'AdminPlugins',
     component: () => import('@/views/admin/PluginsView.vue'),
