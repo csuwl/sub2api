@@ -29,6 +29,7 @@ function fixture(options = {}) {
           return { baseURL: 'https://fixture.invalid/v1', async fetch(url, init) {
             let auth = await getAuth();
             if (options.refresh && auth.access.startsWith('secret-')) {
+              await options.beforeRefresh?.();
               auth = { ...auth, access: `renewed-${auth.access}` };
               await client.auth.set({ path: { id: 'fixture' }, body: auth });
             }
@@ -197,5 +198,24 @@ describe('provider host contract', () => {
       expect((await f.call('/v1/accounts/account-a/chat/completions', 'POST', payload)).status).toBe(400);
     }
     expect(f.seen).toHaveLength(0);
+  });
+
+  test('an old in-flight refresh cannot overwrite a newer browser authorization', async () => {
+    let refreshing, release;
+    const started = new Promise(resolve => { refreshing = resolve; });
+    const f = fixture({ refresh: true, maxConcurrency: 1,
+      beforeRefresh: async () => { refreshing(); await new Promise(resolve => { release = resolve; }); },
+      authorize: () => ({ type: 'success', access: 'new-browser-authorization' }),
+    });
+    const stale = f.call('/v1/accounts/account-a/chat/completions', 'POST', { model: 'model' });
+    await started;
+    expect((await f.call('/admin/accounts/account-a/authorize', 'POST', {})).status).toBe(200);
+    expect((await f.call('/v1/accounts/account-a/chat/completions', 'POST', { model: 'model' })).status).toBe(429);
+    release();
+    expect((await stale).status).toBe(502);
+    expect(f.store.accounts['account-a'].auth.access).toBe('new-browser-authorization');
+    const next = await f.call('/v1/accounts/account-a/chat/completions', 'POST', { model: 'model' });
+    expect(next.status).toBe(200);
+    await next.text();
   });
 });

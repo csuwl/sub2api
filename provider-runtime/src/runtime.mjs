@@ -69,6 +69,7 @@ function streamBody(body, signal, release) {
 export function createRuntime({ token, store, providers }) {
   if (typeof token !== 'string' || token.length < 32 || /[\r\n]/.test(token)) throw new Error('Runtime token must contain at least 32 characters');
   const bindings = new Map();
+  const activities = new Map();
   const logins = new Map();
   const expectedToken = Buffer.from(`Bearer ${token}`);
 
@@ -88,10 +89,13 @@ export function createRuntime({ token, store, providers }) {
     const account = record(id);
     if (!bindings.has(id)) {
       const pending = (async () => {
-        const binding = { account, active: 0, persistError: false };
+        const activity = activities.get(id) ?? { active: 0 };
+        activities.set(id, activity);
+        const binding = { account, authEpoch: account.auth_epoch ?? 0, persistError: false,
+          get active() { return activity.active; }, set active(value) { activity.active = value; } };
         const client = {
           auth: { async set({ path, body }) {
-            if (path?.id !== account.provider || store.accounts[id] !== account) throw new Error('Account scope mismatch');
+            if (path?.id !== account.provider || store.accounts[id] !== account || (account.auth_epoch ?? 0) !== binding.authEpoch) throw new Error('Account authorization scope changed');
             account.auth = structuredClone(body);
             try { await store.save(); binding.persistError = false; }
             catch (error) { binding.persistError = true; throw error; }
@@ -123,10 +127,12 @@ export function createRuntime({ token, store, providers }) {
     if (result?.type !== 'success') throw new HTTPError(400, result?.error || 'Provider authorization failed');
     const { type: _, ...auth } = result;
     const previous = account.auth;
+    const previousEpoch = account.auth_epoch ?? 0;
     account.auth = { ...auth, type: auth.key !== undefined ? 'api' : 'oauth' };
+    account.auth_epoch = previousEpoch + 1;
     bindings.delete(id);
     try { await store.save(); }
-    catch (error) { account.auth = previous; throw error; }
+    catch (error) { account.auth = previous; account.auth_epoch = previousEpoch; throw error; }
   }
 
   async function ensurePersisted(binding) {
@@ -157,6 +163,7 @@ export function createRuntime({ token, store, providers }) {
       } catch (error) {
         delete store.accounts[account.id];
         bindings.delete(account.id);
+        activities.delete(account.id);
         throw error;
       }
       return Response.json(summary(account), { status: 201 });
@@ -171,6 +178,7 @@ export function createRuntime({ token, store, providers }) {
       try { await store.save(); }
       catch (error) { store.accounts[id] = account; throw error; }
       bindings.delete(id);
+      activities.delete(id);
       logins.delete(id);
       return Response.json({ deleted: true });
     }
