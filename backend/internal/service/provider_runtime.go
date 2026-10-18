@@ -38,7 +38,11 @@ var providerRuntimeAccountID = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,80}$`)
 
 var providerRuntimeHTTPClient = &http.Client{
 	Transport: func() *http.Transport {
-		t := http.DefaultTransport.(*http.Transport).Clone()
+		base, ok := http.DefaultTransport.(*http.Transport)
+		if !ok {
+			base = &http.Transport{}
+		}
+		t := base.Clone()
 		t.Proxy = nil // The local host must not traverse an upstream account's proxy.
 		t.ResponseHeaderTimeout = 90 * time.Second
 		return t

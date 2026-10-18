@@ -48,7 +48,7 @@ func TestProviderRuntimeRoundTrip(t *testing.T) {
 	response, handled, err := ProviderRuntimeRoundTrip(req, runtimeTestAccount(), cfg)
 	require.True(t, handled)
 	require.NoError(t, err)
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	require.Equal(t, http.StatusForbidden, response.StatusCode)
 	require.Empty(t, response.Header.Get("Set-Cookie"))
 	require.Empty(t, response.Header.Get("X-Sub2api-Secret"))
@@ -128,7 +128,7 @@ func TestProviderRuntimeNoRedirect(t *testing.T) {
 	res, handled, err := ProviderRuntimeRoundTrip(req, runtimeTestAccount(), cfg)
 	require.True(t, handled)
 	require.NoError(t, err)
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	require.Equal(t, http.StatusTemporaryRedirect, res.StatusCode)
 	require.False(t, called)
 }

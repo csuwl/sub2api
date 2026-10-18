@@ -38,7 +38,7 @@ func (h *AccountHandler) ProviderRuntime(c *gin.Context) {
 		response.Error(c, http.StatusBadGateway, "Provider runtime is unavailable; check its deployment and configuration")
 		return
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(res.Body, 4*1024*1024+1))
 	if err != nil || len(body) > 4*1024*1024 || !json.Valid(body) {
 		response.Error(c, http.StatusBadGateway, "Invalid provider runtime response")
