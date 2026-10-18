@@ -4,6 +4,47 @@
 目录：`/opt/sub2api-magpie-test`。Compose 项目：`sub2api-magpie-test`。
 这是独立测试实例，关闭公开注册；没有替换服务器上原有的 Sub2API、团队版或其它业务。
 
+## 22:27 授权展示与账号测试修复
+
+当前主镜像：`csuwl/sub2api-magpie-test:26ba4e0`，应用输出提交
+`26ba4e06ce3a392ad407ad579bad238cc996f9e3`。接入服务镜像未变。
+传输包 SHA256：`9cf8bfd69fa2b82189e07f84c70065bea655329ce66ec96b19055654bf0b76de`，服务端校验通过。
+更新前完整备份：`/opt/sub2api-magpie-test/backups/20261018T142652Z-authorization-fix`。
+现有用户、账号、分组、模型绑定保留，仅重建测试应用容器；四个测试服务和原业务健康检查通过。
+
+### 已复现的问题与修复
+
+- 用户新建的账号 #3 绑定 OpenCode Zen Free 公共通道，邮箱只是名称；此前“已连接”文案没有清楚区分公共访问和个人授权。
+- 对该账号执行真实的 `/api/v1/admin/accounts/3/test`，原实现返回 SSE 错误：请求占位地址 `provider-runtime.invalid`，DNS 解析失败。原先的网关推理验收没有覆盖这个管理测试入口。
+- 现在账号测试使用与网关一致的供应商传输，按 Chat Completions、Responses、Anthropic 原生协议构造请求；禁用或无效绑定不走普通 HTTP 回退，非成功和中断响应不显示成功。
+- 公共通道明确注明无需登录、不关联邮箱/个人订阅/积分，个人 OpenCode Key 引导至原有 OpenCode 平台；WorkBuddy 创建后展示官方登录步骤，完成授权才允许导入，重新打开窗口恢复待授权链接。
+- 测试站真实 WorkBuddy 授权接口返回 `pending` 与 `https://www.workbuddy.cn` 官方登录地址，诊断账号随后删除。没有完成任何个人 WorkBuddy 登录或积分调用，因此不将完整个人授权算作已通过。
+- 前端全量 2,886 项测试通过，类型检查、相关 ESLint、生产镜像构建通过；Go 供应商及 OpenAI 账号测试回归通过，新增覆盖三种协议、401、429、截断、禁用及不支持的 compact 探测。
+
+### 用户实际导入账号的真实调用
+
+使用现存账号 #3，未替换其配置。下列 9 个模型分别通过真实账号测试入口返回
+`SUB2API_ACCOUNT_TEST_OK` 与成功完成事件，各完成一次：
+
+`mimo-v2.6-flash-free`、`beam-free`、`big-pickle`、`deepseek-v4.1-flash-free`、
+`glm-5.3-flash-free`、`longcat-2.5-preview-free`、`nemotron-3.5-lightning-free`、
+`nemotron-3.5-super-vl-free`、`space-bunny-free`。
+
+再使用 `beam-free` 经公开域名调用 Chat Completions、Responses、Anthropic Messages：
+全部 HTTP 200、返回 `SUB2API_IMPORTED_ACCOUNT_OK`、有对应协议完成事件。
+3 笔网关用量均归属账号 #3，合计 371 tokens，当前测试计价扣费为 0；临时 API Key 已撤销。
+
+**稳定性边界：** 后续浏览器使用 `glm-5.3-flash-free` 连续两次复测返回真实上游
+HTTP 503：`Upstream request failed: Endpoint is unavailable.`。因此上述结果只证明当次真实调用成功，
+不能证明免费上游持续可用；没有把 503 改成成功响应。服务器原始验收记录保存在
+`/opt/sub2api-magpie-test/authorization-acceptance.jsonl`。
+同一浏览器改用 `mimo-v2.6-flash-free`，账号测试返回 `Hi!` 和“测试完成”，
+实际验证了账号列表 → 更多 → 测试连接这条完整交互路径。
+浏览器还实际创建了临时 WorkBuddy 诊断账号，获得官方登录链接并显示等待授权，
+此时加载模型按钮禁用。未登录个人供应商账号，诊断记录随后清理。
+后续复查观察到所有现有容器在 `14:54:36 UTC` 重新启动；没有定位此次重启原因。
+服务恢复健康、用户账号和模型绑定保留，刷新浏览器后旧会话恢复。
+
 ## 构建与隔离
 
 - 根 `Dockerfile` 实际完成前端生产构建、Go Linux amd64 编译和最终镜像打包。
@@ -16,7 +57,7 @@
 - Cloudflare Tunnel 只新增测试域名到此端口的路由；原 `record.csuwl.cn` 路由保留。
 - 部署密钥与登录信息使用私有文件保存，没有进入镜像或 Git 仓库。
 
-最终部署主镜像为 `csuwl/sub2api-magpie-test:38642a0`，应用自身输出的提交为
+前一次统一入口验收的主镜像为 `csuwl/sub2api-magpie-test:38642a0`，应用自身输出的提交为
 `38642a0a53f9cbdd835ca2d419cf78a653dba231`；接入服务仍使用已验证的
 `csuwl/sub2api-provider-runtime:8411354`。最终主镜像传输包 SHA256 为
 `603d3977d2c382d5a98460c84203f0e1c960a84ced6b38439c96b31c83cf55a9`，服务器校验一致。
