@@ -60,6 +60,13 @@ func applyOpenCodeSessionHeader(c *gin.Context, account *Account, targetURL stri
 	if account == nil || account.Type != AccountTypeAPIKey || headers == nil {
 		return
 	}
+	if account.IsProviderRuntimeAccount() {
+		payloads := append(openCodeInboundBodies(c), bodies...)
+		if session := resolveOpenCodeSessionID(c, headers, false, payloads...); session != "" {
+			headers.Set("X-Session-Id", session)
+		}
+		return
+	}
 	if !shouldSendOpenCodeSessionHeader(account, targetURL) {
 		return
 	}

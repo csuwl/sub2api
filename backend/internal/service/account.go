@@ -1489,6 +1489,9 @@ func (a *Account) IsCodingPlan() bool {
 // （与既有行为完全一致）。responses 协议仅 deepseek / kimi / minimax 支持（官方原生
 // Responses 端点，适配 Codex）；zhipu 无此端点。
 func (a *Account) GetAPIProtocol() string {
+	if a.IsProviderRuntimeAccount() {
+		return a.providerRuntimeProtocol()
+	}
 	if a == nil || !a.IsMultiProtocolAPIKey() {
 		return APIProtocolChatCompletions
 	}

@@ -1,0 +1,36 @@
+# Use together with docker-compose.yml from the deploy directory.
+services:
+  sub2api:
+    image: sub2api-provider-runtime:local
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    environment:
+      PROVIDER_RUNTIME_ENABLED: "true"
+      PROVIDER_RUNTIME_BASE_URL: http://provider-runtime:3426
+      PROVIDER_RUNTIME_TOKEN: ${PROVIDER_RUNTIME_TOKEN:?PROVIDER_RUNTIME_TOKEN is required}
+      PROVIDER_RUNTIME_ALLOW_INSECURE_HTTP: "true"
+    depends_on:
+      provider-runtime:
+        condition: service_healthy
+  provider-runtime:
+    build:
+      context: ../provider-runtime
+    restart: unless-stopped
+    environment:
+      PROVIDER_RUNTIME_HOST: 0.0.0.0
+      PROVIDER_RUNTIME_TOKEN: ${PROVIDER_RUNTIME_TOKEN:?PROVIDER_RUNTIME_TOKEN is required}
+      PROVIDER_RUNTIME_STATE_KEY: ${PROVIDER_RUNTIME_STATE_KEY:?PROVIDER_RUNTIME_STATE_KEY is required}
+    expose:
+      - "3426"
+    networks:
+      - sub2api-network
+    volumes:
+      - provider-runtime-data:/app/state
+    healthcheck:
+      test: ["CMD", "bun", "-e", "const r=await fetch('http://127.0.0.1:3426/healthz',{headers:{authorization:'Bearer '+process.env.PROVIDER_RUNTIME_TOKEN}});process.exit(r.ok?0:1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 4
+volumes:
+  provider-runtime-data:

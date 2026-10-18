@@ -1384,6 +1384,10 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 		}
 	case AccountTypeAPIKey:
 		// API Key accounts use Platform API or custom base URL
+		if account.IsProviderRuntimeAccount() {
+			targetURL = providerRuntimeReservedOrigin + "/v1/responses"
+			break
+		}
 		baseURL := account.GetOpenAIBaseURL()
 		if account.UsesNativeCNResponses() && account.IsAdaptiveAPIProtocol() {
 			baseURL = account.GetCNProtocolBaseURL(APIProtocolResponses)

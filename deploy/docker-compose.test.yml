@@ -1,0 +1,116 @@
+# Isolated trial deployment. Run with -p sub2api-magpie-test and a private .env.
+services:
+  app:
+    image: ${SUB2API_IMAGE:?set a built application image}
+    restart: unless-stopped
+    user: "1000:1000"
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    ports:
+      - "127.0.0.1:${TEST_HTTP_PORT:-4088}:8080"
+    environment:
+      AUTO_SETUP: "true"
+      DATA_DIR: /app/data
+      SERVER_HOST: 0.0.0.0
+      SERVER_PORT: "8080"
+      SERVER_MODE: release
+      SERVER_FRONTEND_URL: https://${TEST_DOMAIN:-test.csuwl.cn}
+      RUN_MODE: standard
+      DATABASE_HOST: postgres
+      DATABASE_PORT: "5432"
+      DATABASE_USER: sub2api
+      DATABASE_PASSWORD: ${POSTGRES_PASSWORD:?required}
+      DATABASE_DBNAME: sub2api
+      DATABASE_SSLMODE: disable
+      DATABASE_MAX_OPEN_CONNS: "20"
+      DATABASE_MAX_IDLE_CONNS: "5"
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?required}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:?required}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?required}
+      JWT_SECRET: ${JWT_SECRET:?required}
+      TOTP_ENCRYPTION_KEY: ${TOTP_ENCRYPTION_KEY:?required}
+      PROVIDER_RUNTIME_ENABLED: "true"
+      PROVIDER_RUNTIME_BASE_URL: http://provider-runtime:3426
+      PROVIDER_RUNTIME_TOKEN: ${PROVIDER_RUNTIME_TOKEN:?required}
+      PROVIDER_RUNTIME_ALLOW_INSECURE_HTTP: "true"
+      LOG_OUTPUT_TO_FILE: "false"
+      TZ: Asia/Shanghai
+    volumes:
+      - app-data:/app/data
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      provider-runtime: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, wget, -q, -T, "5", -O, /dev/null, http://127.0.0.1:8080/health]
+      interval: 15s
+      timeout: 6s
+      retries: 8
+      start_period: 120s
+    mem_limit: 1536m
+    cpus: 2
+    logging: &logs
+      driver: json-file
+      options: {max-size: 10m, max-file: "3"}
+  provider-runtime:
+    image: ${PROVIDER_RUNTIME_IMAGE:?set a built provider image}
+    restart: unless-stopped
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    environment:
+      PROVIDER_RUNTIME_HOST: 0.0.0.0
+      PROVIDER_RUNTIME_TOKEN: ${PROVIDER_RUNTIME_TOKEN:?required}
+      PROVIDER_RUNTIME_STATE_KEY: ${PROVIDER_RUNTIME_STATE_KEY:?required}
+    volumes:
+      - provider-data:/app/state
+    healthcheck:
+      test: [CMD, bun, -e, "const r=await fetch('http://127.0.0.1:3426/healthz',{headers:{authorization:'Bearer '+process.env.PROVIDER_RUNTIME_TOKEN}});process.exit(r.ok?0:1)"]
+      interval: 15s
+      timeout: 6s
+      retries: 4
+    mem_limit: 512m
+    cpus: 1
+    logging: *logs
+  postgres:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: sub2api
+      POSTGRES_DB: sub2api
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?required}
+      PGDATA: /var/lib/postgresql/data
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U sub2api -d sub2api"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    mem_limit: 512m
+    cpus: 1
+    logging: *logs
+  redis:
+    image: redis:8-alpine
+    restart: unless-stopped
+    command: [redis-server, --appendonly, "yes", --requirepass, "${REDIS_PASSWORD:?required}"]
+    environment:
+      REDISCLI_AUTH: ${REDIS_PASSWORD:?required}
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 5s
+      timeout: 5s
+      retries: 8
+    mem_limit: 256m
+    cpus: 0.5
+    logging: *logs
+volumes:
+  app-data:
+  provider-data:
+  postgres-data:
+  redis-data:

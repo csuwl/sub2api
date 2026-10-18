@@ -130,6 +130,14 @@ func (s *AccountTestService) ProbeOpenAIAPIKeyResponsesSupport(ctx context.Conte
 	if account.Type != AccountTypeAPIKey {
 		return
 	}
+	if account.IsProviderRuntimeAccount() {
+		// Runtime accounts declare their native protocol. Never probe the
+		// reserved placeholder URL or spend provider credits on discovery.
+		_ = s.accountRepo.UpdateExtra(ctx, account.ID, map[string]any{
+			openai_compat.ExtraKeyResponsesSupported: account.providerRuntimeProtocol() == APIProtocolResponses,
+		})
+		return
+	}
 	if account.RoutesProtocolByInbound() {
 		// 按入站协议分流的供应商（国产厂商等）默认仅支持 /v1/chat/completions。直接落标 false
 		// 走 Chat Completions 直转，跳过网络探测。

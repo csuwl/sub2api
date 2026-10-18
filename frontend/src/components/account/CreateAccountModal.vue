@@ -6,7 +6,7 @@
     @close="handleClose"
   >
     <!-- Step Indicator for OAuth accounts -->
-    <div v-if="isOAuthFlow" class="mb-6 flex items-center justify-center">
+    <div v-if="isOAuthFlow && !runtimeProvider" class="mb-6 flex items-center justify-center">
       <div class="flex items-center space-x-4">
         <div class="flex items-center">
           <div
@@ -40,7 +40,7 @@
 
     <!-- Step 1: Basic Info -->
     <form
-      v-if="step === 1"
+      v-if="step === 1 && !runtimeProvider"
       id="create-account-form"
       @submit.prevent="handleSubmit"
       class="space-y-5"
@@ -264,6 +264,12 @@
             {{ spec.display_name }}
           </button>
         </div>
+      </div>
+
+      <div class="flex flex-wrap gap-2" data-testid="provider-platforms">
+        <button v-for="source in runtimeProviderChoices" :key="source.id" type="button"
+          :data-testid="`provider-platform-${source.id}`" class="btn btn-secondary"
+          @click="runtimeProvider = source.id">{{ source.name }}</button>
       </div>
 
       <!-- Account Type Selection (Anthropic) -->
@@ -3760,6 +3766,10 @@
 
     </form>
 
+    <ProviderRuntimeAccountForm v-else-if="runtimeProvider" :provider-id="runtimeProvider"
+      :account-name="form.name" :initial-group-id="form.group_ids[0]"
+      @saved="emit('created'); handleClose()" />
+
     <!-- Step 2: OAuth Authorization -->
     <div v-else class="space-y-5">
       <OAuthAuthorizationFlow
@@ -3800,7 +3810,11 @@
     </div>
 
     <template #footer>
-      <div v-if="step === 1" class="flex justify-end gap-3">
+      <div v-if="runtimeProvider" class="flex justify-between gap-3">
+        <button type="button" class="btn btn-secondary" @click="runtimeProvider = ''">{{ t('common.back') }}</button>
+        <button type="button" class="btn btn-secondary" @click="handleClose">{{ t('common.cancel') }}</button>
+      </div>
+      <div v-else-if="step === 1" class="flex justify-end gap-3">
         <button @click="handleClose" type="button" class="btn btn-secondary">
           {{ t('common.cancel') }}
         </button>
@@ -4150,6 +4164,7 @@ import type {
   TempUnschedulableScope
 } from '@/types'
 import BaseDialog from '@/components/common/BaseDialog.vue'
+import ProviderRuntimeAccountForm from './ProviderRuntimeAccountForm.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import Select from '@/components/common/Select.vue'
 import HelpTooltip from '@/components/common/HelpTooltip.vue'
@@ -4318,6 +4333,12 @@ interface Props {
 }
 
 const props = defineProps<Props>()
+const runtimeProvider = ref('')
+const runtimeProviderChoices = [
+  { id: 'workbuddy', name: 'WorkBuddy' },
+  { id: 'workbuddy-ai', name: 'WorkBuddy AI' },
+  { id: 'opencode-zen-free', name: 'OpenCode Zen Free' }
+]
 const emit = defineEmits<{
   close: []
   created: []
@@ -5608,6 +5629,7 @@ const submitCreateAccount = async (payload: CreateAccountRequest) => {
 
 // Methods
 const resetForm = () => {
+  runtimeProvider.value = ''
   step.value = 1
   form.name = ''
   form.notes = ''
@@ -5729,6 +5751,7 @@ const resetForm = () => {
 }
 
 const handleClose = () => {
+  runtimeProvider.value = ''
   antigravityMixedChannelConfirmed.value = false
   clearMixedChannelDialog()
   emit('close')

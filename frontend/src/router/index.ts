@@ -526,6 +526,11 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/admin/provider-runtime',
+    name: 'AdminProviderRuntime',
+    redirect: { name: 'AdminAccounts' }
+  },
+  {
     path: '/admin/plugins',
     name: 'AdminPlugins',
     component: () => import('@/views/admin/PluginsView.vue'),

@@ -1,0 +1,29 @@
+name: Provider runtime
+on:
+  push:
+    paths: ['provider-runtime/**', 'backend/internal/**', 'frontend/src/**', '.github/workflows/provider-runtime.yml']
+  pull_request:
+    paths: ['provider-runtime/**', 'backend/internal/**', 'frontend/src/**', '.github/workflows/provider-runtime.yml']
+permissions:
+  contents: read
+jobs:
+  provider-runtime:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.6'
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - run: bun install --frozen-lockfile --ignore-scripts
+        working-directory: provider-runtime
+      - run: bun test
+        working-directory: provider-runtime
+      - name: Gateway, authorization, configuration and compatibility tests
+        working-directory: backend
+        env:
+          SUB2API_TEST_BUN: bun
+        run: go test -tags=unit ./internal/config ./internal/service ./internal/handler/admin -run 'ProviderRuntime|ForwardResponses_.*Chat|ForwardAsAnthropic_ForceChat|OpenCodeSession' -count=1 -timeout=300s

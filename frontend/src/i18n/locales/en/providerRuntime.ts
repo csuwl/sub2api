@@ -1,0 +1,25 @@
+export default {
+  providerRuntime: {
+    manage: 'Manage authorization and models', manageAccount: 'Manage authorization and models for {name}',
+    title: 'Subscription providers', description: 'Connect subscription and free models to your existing API groups.',
+    disabled: 'The provider service is not enabled. Complete the provider runtime deployment to connect accounts.',
+    name: 'Account name', provider: 'Provider', add: 'Add account', account: 'Provider account',
+    connect: 'Authorize account', openLogin: 'Open provider sign-in', pending: 'Waiting for provider authorization…',
+    connected: 'Authorization saved', disconnected: 'Authorization required', refresh: 'Refresh list',
+    namePlaceholder: 'For example: My WorkBuddy', nameHint: 'A local label only. Entering an email does not sign in to the provider.',
+    addAndAuthorize: 'Create and authorize', addPublic: 'Add public free access', publicAccess: 'Public access, no personal authorization',
+    publicHint: 'This uses OpenCode Zen public free access. No sign-in is required, and the label does not connect an email, personal subscription or credits. To use your own OpenCode Key, choose the existing OpenCode platform and enter your official API key.',
+    browserHint: 'After creating the account, open the official sign-in page and complete authorization. Models can be loaded and imported only after authorization succeeds.',
+    remoteHint: 'Complete official sign-in on this computer or a phone. The server waits for the result; no VPS login is required. Reopen this window to resume checking authorization.',
+    authorized: 'Provider authorization received. Load models, then use the account test to verify inference.',
+    authorizeFirst: 'Complete provider authorization before importing models.',
+    models: 'Provider model catalog (test before use)', loadModels: 'Load models', group: 'OpenAI API group', unassigned: 'Assign a group later',
+    import: 'Add models to Sub2API', imported: 'Added {count} accounts. Existing connections were preserved.',
+    importHint: 'Catalog discovery does not verify inference. After importing, select a model in the account Test action. Assign an API group before use. For Messages clients such as Claude Code, also enable Messages dispatch in the group settings.',
+    pricingHint: 'Provider allowance and group charges are separate. Set group model prices to charge downstream usage; new models may have no default pricing.',
+    usage: 'Check allowance', unknown: 'Allowance is unknown', empty: 'No models loaded.',
+    error: 'The operation failed. Check the provider service and try again.', noGroup: 'No group assigned',
+    protocol: 'Protocol', model: 'Model', allowance: 'Provider allowance', selectAll: 'Select all',
+    selectModels: 'Choose at least one model.',
+  }
+}
